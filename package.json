@@ -9,9 +9,11 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
+    "crypto": "^1.0.1",
     "datetime": "^0.0.3",
+    "http-proxy-agent": "^7.0.2",
     "requests": "^0.3.0",
     "uuid": "^13.0.0"
   }
