@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { LIMITS } from '../config/limits.js';
+import { normalizeRequest } from '../normalizer/requestNormalizer.js';
 import http from "http";
 
 const {
@@ -18,10 +19,7 @@ function handleRawRequest(rawRequest, res) {
     'X-Request-Id': rawRequest.id
   });
 
-  res.end(JSON.stringify({
-    message: 'Request recebida pelo WAF listener',
-    requestId: rawRequest.id
-  }));
+  normalizeRequest(rawRequest, res);
 }
 
 
