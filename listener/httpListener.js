@@ -13,12 +13,6 @@ const {
 function handleRawRequest(rawRequest, res) {
   // Ainda NÃO é WAF
   // Só prova que o listener funciona
-
-  res.writeHead(200, {
-    'Content-Type': 'application/json',
-    'X-Request-Id': rawRequest.id
-  });
-
   normalizeRequest(rawRequest, res);
 }
 

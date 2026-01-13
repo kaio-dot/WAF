@@ -1,26 +1,26 @@
 import { URL } from 'url';
+import { createRequestContext } from '../context/requestContext.js';
 
 
 export function normalizeRequest(rawRequest, res){
-    const anomalias = [];
+  const anomalies = [];
 
-    const normalizedRequest = {
-        method: rawRequest.method.toUpperCase(),
-        path: normalizePath(rawRequest.url, anomalias),
-        query: normalizeQuery(rawRequest.url),
-        headers: normalizeHeaders(rawRequest.headers, anomalias),
-        body: rawRequest.body, 
-        ip: rawRequest.ip || res.connection.remoteAddress, 
-        anomalias
-    };
+  const normalizedRequest = {
+    id: rawRequest.id,
+    method: rawRequest.method.toUpperCase(),
+    path: normalizePath(rawRequest.url, anomalies),
+    query: normalizeQuery(rawRequest.url, anomalies),
+    headers: normalizeHeaders(rawRequest.headers, anomalies),
+    body: rawRequest.body, 
+    ip: rawRequest.ip || res.connection.remoteAddress, 
+    anomalies
+  };
 
-   res.writeHead(200, {
-  'Content-Type': 'application/json',
-  'X-Request-Id': rawRequest.id
-});
+  sendToEngine(normalizedRequest, res);
+}
 
-res.end(JSON.stringify(normalized, null, 2));
-    return normalizedRequest;
+function sendToEngine(normalizedRequest, res){
+  createRequestContext(normalizedRequest, res);
 }
 
 
@@ -28,15 +28,37 @@ res.end(JSON.stringify(normalized, null, 2));
 
 function normalizePath(rawUrl, anomalies) {
   try {
-    const decoded = decodeURIComponent(rawUrl);
-    const url = new URL(decoded, 'http://waf.local');
+    let decoded = rawUrl;
+    let previousDecoded = '';
+    
+    // Decodifica iterativamente até não mudar mais (pega dupla encoding)
+    while (decoded !== previousDecoded && decoded.includes('%')) {
+      previousDecoded = decoded;
+      try {
+        decoded = decodeURIComponent(decoded);
+      } catch (_err) {
+        break;
+      }
+    }
 
-    // normaliza barras duplicadas
+    const url = new URL(decoded, 'http://waf.local');
     let path = url.pathname.replace(/\/{2,}/g, '/');
 
-    // detecta traversal
-    if (path.includes('..')) {
-      anomalies.push('PATH_TRAVERSAL_PATTERN');
+    // Detecta vários padrões de traversal
+    const traversalPatterns = [
+      /\.\.\//,           // ../
+      /\.\.\\/,           // ..\
+      /\.\.\;/,           // ..; (null byte escape attempt)
+      /\%2e\%2e/i,        // %2e%2e (encoded ..)
+      /\%2f\.\./i,        // %2f.. (./ encoded)
+      /\%5c\.\./i         // %5c.. (\ encoded)
+    ];
+
+    for (const pattern of traversalPatterns) {
+      if (pattern.test(path) || pattern.test(decoded)) {
+        anomalies.push('PATH_TRAVERSAL_PATTERN');
+        break;
+      }
     }
 
     return path;
@@ -46,18 +68,44 @@ function normalizePath(rawUrl, anomalies) {
   }
 }
 
-function normalizeQuery(rawUrl) {
+function normalizeQuery(rawUrl, anomalies) {
   try {
-    const decoded = decodeURIComponent(rawUrl);
-    const url = new URL(decoded, 'http://waf.local');
+    let decoded = rawUrl;
+    let previousDecoded = '';
+    
+    // Decodifica iterativamente para pegar dupla encoding
+    while (decoded !== previousDecoded && decoded.includes('%')) {
+      previousDecoded = decoded;
+      try {
+        decoded = decodeURIComponent(decoded);
+      } catch (_err) {
+        break;
+      }
+    }
 
+    const url = new URL(decoded, 'http://waf.local');
     const query = {};
+
     for (const [key, value] of url.searchParams.entries()) {
+      // Detecta padrões de traversal em query params
+      const traversalPatterns = [
+        /\.\.\//,
+        /\.\.\\/,
+        /\%2e\%2e/i,
+      ];
+
+      for (const pattern of traversalPatterns) {
+        if (pattern.test(value)) {
+          anomalies.push('TRAVERSAL_IN_QUERY');
+          break;
+        }
+      }
       query[key] = value;
     }
 
     return query;
-  } catch {
+  } catch (err) {
+    anomalies.push('INVALID_QUERY_ENCODING');
     return {};
   }
 }
